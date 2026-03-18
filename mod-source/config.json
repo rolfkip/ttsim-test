@@ -1,9 +1,14 @@
 {
+  "CameraStates": [],
   "ComponentTags": {
     "labels": []
   },
+  "CustomUIAssets": [],
   "DecalPallet": [],
+  "Decals": [],
+  "GameComplexity": "",
   "GameMode": "None",
+  "GameType": "",
   "Gravity": 0.5,
   "Grid_path": "Grid.json",
   "Hands": {
@@ -14,6 +19,7 @@
   "Lighting_path": "Lighting.json",
   "LuaScriptState": "",
   "LuaScript_path": "LuaScript.ttslua",
+  "MusicPlayer": {},
   "Note": "",
   "ObjectStates_order": [
     "HandTrigger.22ac82",
@@ -28,6 +34,7 @@
   "PlayArea": 0.5,
   "SaveName": "bootstrap1",
   "Sky": "Sky_Field",
+  "SnapPoints": [],
   "TabStates_path": "TabStates.json",
   "Table": "Table_RPG",
   "Tags": [],

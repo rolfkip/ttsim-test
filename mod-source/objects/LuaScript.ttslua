@@ -1,11 +1,632 @@
---[[ Lua code. See documentation: https://api.tabletopsimulator.com/ --]]
+-- UNO Classic for TTS
 
---[[ The onLoad event is called after the game save finishes loading. --]]
+SETTINGS = {
+    debug = false,
+    existing_draw_guid = nil,
+    player_order = { "Red", "Blue", "Green", "Yellow", "Orange", "Purple", "White", "Brown", "Pink", "Teal" },
+    draw_pos = { x = 0, y = 1.2, z = -2.2 },
+    discard_pos = { x = 0, y = 1.2, z = 2.2 },
+    discard_radius = 2.4,
+    discard_step = 0.02,
+    back = "https://dummyimage.com/750x1050/111111/ffffff.png&text=UNO",
+}
+
+STATE = {
+    active = false,
+    winner = nil,
+    players = {},
+    idx = {},
+    dir = 1,
+    turn = nil,
+    turn_no = 0,
+    draw_guid = nil,
+    top_guid = nil,
+    top_color = nil,
+    top_type = nil,
+    top_value = nil,
+    discard_n = 0,
+    awaiting_color = nil,
+    pending_w4 = nil,
+    pending_uno = {},
+    catch_window = nil,
+    drew = false,
+}
+
 function onLoad()
-    --[[ print('onLoad!') --]]
+    -- Keep load path minimal/safe. UI buttons can be added later after core load is stable.
 end
 
---[[ The onUpdate event is called once per frame. --]]
-function onUpdate()
-    --[[ print('onUpdate loop!') --]]
+function setupButtons()
+    local ui_host = getUiHost()
+    if not ui_host then
+        error("no UI host object available for createButton")
+    end
+    ui_host.clearButtons()
+    mkBtn(ui_host, "btnStart", "Start UNO Round", {-6,0.3,0.0}, 2800)
+    mkBtn(ui_host, "btnUno", "UNO", {-6,0.3,1.0}, 1200)
+    mkBtn(ui_host, "btnChallenge", "Challenge +4", {-6,0.3,1.8}, 2200)
+    mkBtn(ui_host, "btnAccept", "Accept +4", {-6,0.3,2.6}, 1600)
+    mkBtn(ui_host, "btnDraw", "Draw", {-6,0.3,3.4}, 1200)
+    mkBtn(ui_host, "btnColorRed", "Red", {6,0.3,-1.8}, 1200)
+    mkBtn(ui_host, "btnColorYellow", "Yellow", {6,0.3,-1.0}, 1200)
+    mkBtn(ui_host, "btnColorGreen", "Green", {6,0.3,-0.2}, 1200)
+    mkBtn(ui_host, "btnColorBlue", "Blue", {6,0.3,0.6}, 1200)
+end
+
+function getUiHost()
+    if self and self.createButton then
+        return self
+    end
+    if Global and Global.createButton then
+        return Global
+    end
+    return nil
+end
+
+function mkBtn(ui_host, fn, label, pos, width)
+    ui_host.createButton({
+        click_function = fn,
+        function_owner = ui_host,
+        label = label,
+        position = pos,
+        width = width,
+        height = 420,
+        font_size = 220,
+        color = {0.15,0.15,0.15,0.95},
+        font_color = {1,1,1,1},
+    })
+end
+
+function btnStart(_, color) if isHost(color) then startRound(color) end end
+function btnUno(_, color) callUno(color) end
+function btnChallenge(_, color) challengeW4(color) end
+function btnAccept(_, color) acceptW4(color) end
+function btnDraw(_, color) drawAction(color) end
+function btnColorRed(_, c) chooseColor(c, "Red") end
+function btnColorYellow(_, c) chooseColor(c, "Yellow") end
+function btnColorGreen(_, c) chooseColor(c, "Green") end
+function btnColorBlue(_, c) chooseColor(c, "Blue") end
+
+function onChat(message, player)
+    local msg = string.lower((message or ""):gsub("^%s*(.-)%s*$", "%1"))
+    if msg == "!start" then if isHost(player.color) then startRound(player.color) end return false end
+    if msg == "!uno" then callUno(player.color) return false end
+    if msg == "!challenge" then challengeW4(player.color) return false end
+    if msg == "!accept" then acceptW4(player.color) return false end
+    if msg == "!draw" then drawAction(player.color) return false end
+    local c = msg:match("^!color%s+(%a+)$")
+    if c then chooseColor(player.color, normUnoColor(c)) return false end
+    local t = msg:match("^!catch%s*(%a*)$")
+    if t ~= nil then catchUno(player.color, normPlayerColor(t)) return false end
+    return true
+end
+
+function startRound(starter)
+    resetState()
+    local active = seatedPlayers()
+    if #active < 2 then
+        broadcastToAll("Need at least 2 seated players.", {1,0.4,0.4})
+        return
+    end
+    STATE.players = sortByOrder(active)
+    for i,c in ipairs(STATE.players) do STATE.idx[c] = i end
+
+    cleanupOldPiles()
+    local draw = ensureDrawPile()
+    if not draw then
+        broadcastToAll("Could not create draw pile.", {1,0.4,0.4})
+        return
+    end
+    draw.setName("UNO Draw Pile")
+    draw.setLock(true)
+    draw.randomize()
+    STATE.draw_guid = draw.getGUID()
+
+    local dealer = normPlayerColor(starter) or STATE.players[1]
+    local start_idx = wrap((STATE.idx[dealer] or 1) + 1)
+
+    for r=1,7 do
+        for s=0,#STATE.players-1 do
+            drawToPlayer(STATE.players[wrap(start_idx+s)], 1)
+        end
+    end
+
+    Wait.time(function()
+        local first = takeOne()
+        if not first then return end
+        placeDiscard(first)
+        local meta = parseMeta(first)
+        if not meta then return end
+
+        STATE.active = true
+        applyStartup(meta, first, dealer, start_idx)
+        setTurn(STATE.turn)
+        broadcastToAll("UNO started. Turn: " .. STATE.turn, {0.5,0.9,0.5})
+    end, 1.0)
+end
+
+function resetState()
+    STATE.active = false
+    STATE.winner = nil
+    STATE.players = {}
+    STATE.idx = {}
+    STATE.dir = 1
+    STATE.turn = nil
+    STATE.turn_no = 0
+    STATE.draw_guid = nil
+    STATE.top_guid = nil
+    STATE.top_color = nil
+    STATE.top_type = nil
+    STATE.top_value = nil
+    STATE.discard_n = 0
+    STATE.awaiting_color = nil
+    STATE.pending_w4 = nil
+    STATE.pending_uno = {}
+    STATE.catch_window = nil
+    STATE.drew = false
+end
+
+function applyStartup(meta, card, dealer, start_idx)
+    setTop(meta, card)
+    local idx = start_idx
+    if meta.type == "wild_draw_four" then
+        local pile = drawPile()
+        if pile then pile.putObject(card) pile.randomize() end
+        local r = takeOne(); if r then placeDiscard(r); applyStartup(parseMeta(r), r, dealer, start_idx) end
+        return
+    elseif meta.type == "wild" then
+        STATE.top_color = "Red"
+    elseif meta.type == "skip" then
+        idx = wrap(start_idx + 1)
+    elseif meta.type == "reverse" then
+        STATE.dir = -1
+        idx = STATE.idx[dealer]
+    elseif meta.type == "draw_two" then
+        drawToPlayer(STATE.players[start_idx], 2)
+        idx = wrap(start_idx + 1)
+    end
+    STATE.turn = STATE.players[idx]
+end
+
+function ensureDrawPile()
+    if SETTINGS.existing_draw_guid then
+        local o = getObjectFromGUID(SETTINGS.existing_draw_guid)
+        if o then return o end
+    end
+    for _,o in ipairs(getAllObjects()) do
+        if o and o.getName() == "UNO Draw Pile" then return o end
+    end
+    return spawnDeck()
+end
+
+function spawnDeck()
+    local cards = buildCards()
+    local data = {
+        Name="DeckCustom", Nickname="UNO Draw Pile", Description="uno_draw_pile",
+        Transform={posX=SETTINGS.draw_pos.x,posY=SETTINGS.draw_pos.y,posZ=SETTINGS.draw_pos.z,rotX=0,rotY=180,rotZ=180,scaleX=1,scaleY=1,scaleZ=1},
+        Locked=true, Snap=true,
+        DeckIDs={},
+        CustomDeck={},
+        ContainedObjects={}
+    }
+    for i,m in ipairs(cards) do
+        local id = i * 100
+        local key = tostring(i)
+        data.CustomDeck[key] = {
+            FaceURL = faceUrlForCard(m),
+            BackURL = SETTINGS.back,
+            NumWidth = 1,
+            NumHeight = 1,
+            BackIsHidden = true,
+            UniqueBack = false,
+            Type = 0
+        }
+        table.insert(data.DeckIDs, id)
+        table.insert(data.ContainedObjects, {
+            Name="Card", Nickname=m.label, Description=m.code .. "\n" .. m.label, CardID=id,
+            Tags={"uno", string.lower(m.color), m.type, tostring(m.rank)},
+            Transform={posX=0,posY=0,posZ=0,rotX=0,rotY=180,rotZ=180,scaleX=1,scaleY=1,scaleZ=1}
+        })
+    end
+    return spawnObjectData({data=data})
+end
+
+function buildCards()
+    local out, cols = {}, {"Red","Yellow","Green","Blue"}
+    for _,c in ipairs(cols) do
+        push(out, c, "number", "0", 0, c.." 0")
+        for n=1,9 do push(out,c,"number",tostring(n),n,c.." "..n); push(out,c,"number",tostring(n),n,c.." "..n) end
+        for i=1,2 do
+            push(out,c,"skip","skip",nil,c.." Skip")
+            push(out,c,"reverse","reverse",nil,c.." Reverse")
+            push(out,c,"draw_two","draw_two",nil,c.." Draw Two")
+        end
+    end
+    for i=1,4 do
+        push(out,"Wild","wild","wild",nil,"Wild")
+        push(out,"Wild","wild_draw_four","wild_draw_four",nil,"Wild Draw Four")
+    end
+    return out
+end
+
+function push(t,c,ty,r,v,l)
+    table.insert(t, {label=l, code=string.lower(c).."|"..ty.."|"..tostring(r), color=c, type=ty, rank=r, value=v})
+end
+
+function faceUrlForCard(card)
+    local bg = "f5f5f5"
+    local fg = "111111"
+    if card.color == "Red" then bg, fg = "d32f2f", "ffffff" end
+    if card.color == "Yellow" then bg, fg = "f9a825", "111111" end
+    if card.color == "Green" then bg, fg = "2e7d32", "ffffff" end
+    if card.color == "Blue" then bg, fg = "1565c0", "ffffff" end
+    if card.color == "Wild" then bg, fg = "212121", "ffffff" end
+    local text = urlEncode(card.label)
+    return "https://dummyimage.com/750x1050/" .. bg .. "/" .. fg .. ".png&text=" .. text
+end
+
+function urlEncode(value)
+    local s = tostring(value or "")
+    s = string.gsub(s, "%%", "%%25")
+    s = string.gsub(s, "%+", "%%2B")
+    s = string.gsub(s, "/", "%%2F")
+    s = string.gsub(s, " ", "+")
+    return s
+end
+
+function onObjectDrop(player_color, object)
+    if not STATE.active or STATE.winner or not object or object.tag ~= "Card" then return end
+    if not nearDiscard(object.getPosition()) then return end
+    if player_color ~= STATE.turn then return bounce(player_color, object, "Not your turn.") end
+    if STATE.awaiting_color then return bounce(player_color, object, "Pick Wild color first.") end
+    if STATE.pending_w4 then return bounce(player_color, object, "Resolve Draw Four first.") end
+
+    local meta = parseMeta(object)
+    if not meta then return bounce(player_color, object, "Invalid UNO card metadata.") end
+    local ok, why = legal(meta, player_color)
+    if not ok then return bounce(player_color, object, why) end
+
+    local prev_color = STATE.top_color
+    placeDiscard(object)
+    setTop(meta, object)
+    afterPlay(player_color, meta, prev_color)
+    maybeUno(player_color)
+    maybeWin(player_color)
+end
+
+function afterPlay(player, meta, prev_color)
+    if meta.type == "wild" or meta.type == "wild_draw_four" then
+        STATE.awaiting_color = { player = player, ctype = meta.type, pre = prev_color }
+        STATE.top_color = nil
+        broadcastToAll(player .. " played " .. meta.label .. ". Choose a color.", {0.9,0.9,0.3})
+        return
+    end
+    if meta.type == "draw_two" then
+        local t = nextPlayer(player, 1)
+        drawToPlayer(t, 2)
+        return setTurn(nextPlayer(player, 2))
+    end
+    if meta.type == "skip" then return setTurn(nextPlayer(player, 2)) end
+    if meta.type == "reverse" then STATE.dir = STATE.dir * -1; return setTurn(nextPlayer(player, 1)) end
+    setTurn(nextPlayer(player, 1))
+end
+
+function chooseColor(player_color, color)
+    if not STATE.awaiting_color then return end
+    if STATE.awaiting_color.player ~= player_color then return end
+    color = normUnoColor(color)
+    if not color then return end
+    local typ, pre = STATE.awaiting_color.ctype, STATE.awaiting_color.pre
+    STATE.awaiting_color = nil
+    STATE.top_color = color
+    broadcastToAll(player_color .. " chose " .. color .. ".", rgb(color))
+    if typ == "wild_draw_four" then
+        local t = nextPlayer(player_color, 1)
+        STATE.pending_w4 = { offender = player_color, target = t, pre = pre }
+        STATE.turn = t
+        setTurns()
+        Turns.turn_color = t
+        broadcastToAll(t .. ": Challenge +4 or Accept +4.", {0.9,0.8,0.2})
+    else
+        setTurn(nextPlayer(player_color, 1))
+    end
+end
+
+function challengeW4(player_color)
+    local p = STATE.pending_w4
+    if not p or p.target ~= player_color then return end
+    if handHasColor(p.offender, p.pre) then
+        drawToPlayer(p.offender, 4)
+        STATE.pending_w4 = nil
+        setTurn(player_color)
+    else
+        drawToPlayer(player_color, 6)
+        STATE.pending_w4 = nil
+        setTurn(nextPlayer(player_color, 1))
+    end
+end
+
+function acceptW4(player_color)
+    local p = STATE.pending_w4
+    if not p or p.target ~= player_color then return end
+    drawToPlayer(player_color, 4)
+    STATE.pending_w4 = nil
+    setTurn(nextPlayer(player_color, 1))
+end
+
+function drawAction(player_color)
+    if not STATE.active or STATE.winner or player_color ~= STATE.turn then return end
+    if STATE.awaiting_color or STATE.pending_w4 then return end
+    if STATE.drew then return end
+    drawToPlayer(player_color, 1)
+    STATE.drew = true
+    setTurn(nextPlayer(player_color, 1))
+end
+
+function legal(meta, player_color)
+    if meta.type == "wild" then return true end
+    if meta.type == "wild_draw_four" then
+        if handHasColor(player_color, STATE.top_color) then return false, "Wild Draw Four illegal: matching color exists." end
+        return true
+    end
+    if meta.color == STATE.top_color then return true end
+    if meta.type ~= "number" and meta.type == STATE.top_type then return true end
+    if meta.type == "number" and STATE.top_type == "number" and meta.value == STATE.top_value then return true end
+    return false, "Must match color, number, or symbol."
+end
+
+function callUno(player_color)
+    if STATE.pending_uno[player_color] then
+        STATE.pending_uno[player_color] = nil
+        broadcastToAll(player_color .. " called UNO!", {1,0.5,0.1})
+    end
+end
+
+function maybeUno(player_color)
+    Wait.time(function()
+        if handCount(player_color) == 1 then
+            STATE.pending_uno[player_color] = true
+            STATE.catch_window = { offender = player_color, turn = STATE.turn_no }
+        else
+            STATE.pending_uno[player_color] = nil
+        end
+    end, 0.2)
+end
+
+function catchUno(caller, target)
+    if not STATE.catch_window then return end
+    local off = target or STATE.catch_window.offender
+    if off ~= STATE.catch_window.offender or not STATE.pending_uno[off] then return end
+    drawToPlayer(off, 2)
+    STATE.pending_uno[off] = nil
+    STATE.catch_window = nil
+    broadcastToAll(caller .. " caught " .. off .. " for missed UNO.", {1,0.5,0.5})
+end
+
+function maybeWin(player_color)
+    Wait.time(function()
+        if STATE.winner or not STATE.active then return end
+        if handCount(player_color) == 0 then
+            STATE.winner = player_color
+            STATE.active = false
+            broadcastToAll(player_color .. " wins. Flipping table...", {1,0.8,0.2})
+            flipTable()
+        end
+    end, 0.3)
+end
+
+function bounce(player_color, object, reason)
+    broadcastToColor(reason, player_color, {1,0.5,0.5})
+    local t = handTf(player_color)
+    if t then
+        object.setPositionSmooth({t.position[1], t.position[2]+2, t.position[3]}, false, true)
+        object.setRotationSmooth({0, t.rotation[2], 0}, false, true)
+    end
+end
+
+function setTop(meta, card)
+    STATE.top_guid = card.getGUID()
+    STATE.top_color = meta.color
+    STATE.top_type = meta.type
+    STATE.top_value = meta.value
+end
+
+function setTurn(color)
+    STATE.turn = color
+    STATE.turn_no = STATE.turn_no + 1
+    STATE.drew = false
+    setTurns()
+    Turns.turn_color = color
+    if STATE.catch_window and STATE.turn_no > STATE.catch_window.turn + 1 then STATE.catch_window = nil end
+    broadcastToAll("Turn: " .. color, rgb(color))
+end
+
+function setTurns()
+    Turns.enable = true
+    Turns.type = 2
+    Turns.order = STATE.players
+    Turns.reverse_order = (STATE.dir == -1)
+    Turns.pass_turns = false
+    Turns.skip_empty_hands = false
+end
+
+function drawToPlayer(color, count)
+    for i=1,count do
+        local card = takeOne()
+        if not card then return end
+        local t = handTf(color)
+        if t then
+            card.setPositionSmooth({t.position[1], t.position[2]+2, t.position[3]}, false, true)
+            card.setRotationSmooth({0, t.rotation[2], 0}, false, true)
+        end
+    end
+end
+
+function takeOne()
+    local pile = drawPile()
+    if not pile then reshuffleDiscard(); pile = drawPile(); if not pile then return nil end end
+    if pile.tag == "Deck" then return pile.takeObject({position={SETTINGS.draw_pos.x+0.6, SETTINGS.draw_pos.y+1.5, SETTINGS.draw_pos.z}, smooth=false}) end
+    if pile.tag == "Card" then STATE.draw_guid = nil; return pile end
+    return nil
+end
+
+function drawPile()
+    if STATE.draw_guid then
+        local o = getObjectFromGUID(STATE.draw_guid)
+        if o then return o end
+    end
+    local best, bestd = nil, 99
+    for _,o in ipairs(getAllObjects()) do
+        if o and (o.tag == "Deck" or o.tag == "Card") then
+            local d = d2(o.getPosition(), SETTINGS.draw_pos)
+            if d < bestd and d < 3 then best, bestd = o, d end
+        end
+    end
+    if best then STATE.draw_guid = best.getGUID() end
+    return best
+end
+
+function reshuffleDiscard()
+    local top = STATE.top_guid
+    local cards = {}
+    for _,o in ipairs(getAllObjects()) do
+        if o and o.tag == "Card" and o.getGUID() ~= top and nearDiscard(o.getPosition()) then table.insert(cards, o) end
+    end
+    if #cards == 0 then return end
+    for i,o in ipairs(cards) do
+        o.setPositionSmooth({SETTINGS.draw_pos.x, SETTINGS.draw_pos.y+1+i*0.02, SETTINGS.draw_pos.z}, false, true)
+        o.setRotationSmooth({0,180,180}, false, true)
+    end
+    Wait.time(function()
+        local p = drawPile()
+        if p then p.setName("UNO Draw Pile") p.randomize() p.setLock(true) STATE.draw_guid = p.getGUID() end
+    end, 0.8)
+end
+
+function placeDiscard(card)
+    STATE.discard_n = STATE.discard_n + 1
+    local y = SETTINGS.discard_pos.y + STATE.discard_n * SETTINGS.discard_step
+    card.setPositionSmooth({SETTINGS.discard_pos.x, y, SETTINGS.discard_pos.z}, false, true)
+    card.setRotationSmooth({0,180,0}, false, true)
+end
+
+function parseMeta(card)
+    local desc = (card.getDescription() or ""):lower()
+    local name = card.getName() or ""
+    local c,t,r = desc:match("([a-z]+)|([a-z_]+)|([a-z0-9_]*)")
+    if c and t then
+        local col = normUnoColor(c)
+        if t == "wild" or t == "wild_draw_four" then col = "Wild" end
+        return { color=col, type=t, rank=r, value=tonumber(r), label=name }
+    end
+    local ln = name:lower()
+    local col = nil
+    if ln:find("red") then col = "Red" elseif ln:find("yellow") then col = "Yellow" elseif ln:find("green") then col = "Green" elseif ln:find("blue") then col = "Blue" elseif ln:find("wild") then col = "Wild" end
+    if not col then return nil end
+    if ln:find("draw four") then return {color="Wild",type="wild_draw_four",label=name} end
+    if ln:find("wild") then return {color="Wild",type="wild",label=name} end
+    if ln:find("draw two") then return {color=col,type="draw_two",label=name} end
+    if ln:find("reverse") then return {color=col,type="reverse",label=name} end
+    if ln:find("skip") then return {color=col,type="skip",label=name} end
+    local n = tonumber(ln:match("(%d)")); if n then return {color=col,type="number",value=n,label=name} end
+    return nil
+end
+
+function handHasColor(color, uno_color)
+    if not uno_color or uno_color == "Wild" then return false end
+    for _,o in ipairs(handObjs(color)) do
+        local m = parseMeta(o)
+        if m and m.color == uno_color then return true end
+    end
+    return false
+end
+
+function handCount(color) return #handObjs(color) end
+function handObjs(color) local p=Player[color]; if not p then return {} end local ok,v=pcall(function() return p.getHandObjects() end); return (ok and v) and v or {} end
+function handTf(color) local p=Player[color]; if not p then return nil end local ok,v=pcall(function() return p.getHandTransform(1) end); return (ok and v) and v or nil end
+
+function seatedPlayers()
+    local out = {}
+    for _,p in ipairs(Player.getPlayers()) do if p.seated and p.color ~= "Black" and p.color ~= "Grey" then table.insert(out, p.color) end end
+    return out
+end
+
+function sortByOrder(colors)
+    local map = {}; for i,c in ipairs(SETTINGS.player_order) do map[c]=i end
+    table.sort(colors, function(a,b) return (map[a] or 999) < (map[b] or 999) end)
+    return colors
+end
+
+function nextPlayer(from, steps)
+    local i = STATE.idx[from] or 1
+    return STATE.players[wrap(i + (steps or 1) * STATE.dir)]
+end
+
+function wrap(i)
+    local n = #STATE.players
+    while i < 1 do i = i + n end
+    while i > n do i = i - n end
+    return i
+end
+
+function nearDiscard(pos) return d2(pos, SETTINGS.discard_pos) <= SETTINGS.discard_radius end
+function d2(a,b) local dx=(a.x or a[1]) - b.x; local dz=(a.z or a[3]) - b.z; return math.sqrt(dx*dx + dz*dz) end
+
+function cleanupOldPiles()
+    for _,o in ipairs(getAllObjects()) do
+        if o then
+            local name = o.getName() or ""
+            local desc = o.getDescription() or ""
+            if name == "UNO Draw Pile"
+                or desc == "uno_draw_pile"
+                or string.find(desc, "|", 1, true)
+                or hasTag(o, "uno") then
+                o.destruct()
+            end
+        end
+    end
+end
+
+function hasTag(obj, wanted)
+    local ok, tags = pcall(function() return obj.getTags() end)
+    if not ok or not tags then return false end
+    for _, t in ipairs(tags) do
+        if t == wanted then
+            return true
+        end
+    end
+    return false
+end
+
+function normUnoColor(raw)
+    if not raw then return nil end
+    local s = tostring(raw):lower()
+    if s=="r" or s=="red" then return "Red" end
+    if s=="y" or s=="yellow" then return "Yellow" end
+    if s=="g" or s=="green" then return "Green" end
+    if s=="b" or s=="blue" then return "Blue" end
+    if s=="wild" then return "Wild" end
+    return nil
+end
+
+function normPlayerColor(raw)
+    if not raw or raw == "" then return nil end
+    local s = tostring(raw):lower()
+    for _,c in ipairs(SETTINGS.player_order) do if c:lower() == s then return c end end
+    return nil
+end
+
+function rgb(name)
+    local n = normUnoColor(name) or normPlayerColor(name) or name
+    if n == "Red" then return {0.85,0.15,0.15} end
+    if n == "Yellow" then return {0.92,0.82,0.12} end
+    if n == "Green" then return {0.18,0.65,0.25} end
+    if n == "Blue" then return {0.18,0.35,0.86} end
+    return {0.9,0.9,0.9}
+end
+
+function isHost(color)
+    if color == "Black" then return true end
+    local p = Player[color]
+    return p and p.host == true
 end
