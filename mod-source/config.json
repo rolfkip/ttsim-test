@@ -1,0 +1,37 @@
+{
+  "ComponentTags": {
+    "labels": []
+  },
+  "DecalPallet": [],
+  "GameMode": "None",
+  "Gravity": 0.5,
+  "Grid_path": "Grid.json",
+  "Hands": {
+    "DisableUnused": false,
+    "Enable": true,
+    "Hiding": 0
+  },
+  "Lighting_path": "Lighting.json",
+  "LuaScriptState": "",
+  "LuaScript_path": "LuaScript.ttslua",
+  "Note": "",
+  "ObjectStates_order": [
+    "HandTrigger.22ac82",
+    "HandTrigger.29ee9b",
+    "HandTrigger.bcaaec",
+    "HandTrigger.241503",
+    "HandTrigger.c3ecf5",
+    "HandTrigger.265587",
+    "HandTrigger.46294f",
+    "HandTrigger.bb0c8a"
+  ],
+  "PlayArea": 0.5,
+  "SaveName": "bootstrap1",
+  "Sky": "Sky_Field",
+  "TabStates_path": "TabStates.json",
+  "Table": "Table_RPG",
+  "Tags": [],
+  "Turns_path": "Turns.json",
+  "VersionNumber": "v14.2.1",
+  "XmlUI_path": "Root.xml"
+}

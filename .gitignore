@@ -1,0 +1,11 @@
+# Build output
+dist/workshop.json
+
+# Local tools
+tools/TTSModManager.exe
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+

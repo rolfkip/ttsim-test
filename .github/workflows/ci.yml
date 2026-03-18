@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  build-and-validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PowerShell
+        shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion
+
+      - name: Install TTSModManager
+        shell: pwsh
+        run: |
+          ./scripts/install-ttsmodmanager.ps1
+
+      - name: Validate
+        shell: pwsh
+        run: |
+          ./scripts/validate.ps1 -SkipRemoteUrlCheck
+
+      - name: Build (when bootstrapped)
+        shell: pwsh
+        run: |
+          if (Test-Path "mod-source/.bootstrap-complete") {
+            ./scripts/build.ps1
+          } else {
+            Write-Host "Skipping build because mod-source is not bootstrapped yet."
+          }
+
+      - name: Upload Build Artifact
+        if: ${{ hashFiles('dist/workshop.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: workshop-json
+          path: dist/workshop.json
+

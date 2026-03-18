@@ -1,0 +1,14 @@
+{
+  "$schema": "https://example.com/schemas/tts-assets-manifest.schema.json",
+  "version": "0.1.0",
+  "assets": {
+    "example.board_texture": {
+      "source": "assets-src/board/board-texture.png",
+      "url": "https://github.com/<owner>/<repo>/releases/download/v0.1.0/board-texture.png"
+    },
+    "example.thumbnail": {
+      "source": "assets-src/meta/workshop-thumb.jpg",
+      "url": "https://github.com/<owner>/<repo>/releases/download/v0.1.0/workshop-thumb.jpg"
+    }
+  }
+}
