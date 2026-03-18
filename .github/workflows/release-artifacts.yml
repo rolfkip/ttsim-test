@@ -1,0 +1,51 @@
+name: Release Artifacts
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-release-artifacts:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure bootstrap marker exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "mod-source/.bootstrap-complete")) {
+            throw "mod-source/.bootstrap-complete is missing. Bootstrap source before tagging a release."
+          }
+
+      - name: Install TTSModManager
+        shell: pwsh
+        run: |
+          ./scripts/install-ttsmodmanager.ps1
+
+      - name: Build
+        shell: pwsh
+        run: |
+          ./scripts/build.ps1
+
+      - name: Validate
+        shell: pwsh
+        run: |
+          ./scripts/validate.ps1
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-workshop-files
+          path: |
+            dist/workshop.json
+            assets-manifest.json
+
+      - name: Attach assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/workshop.json
+            assets-manifest.json
+

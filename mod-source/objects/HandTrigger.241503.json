@@ -1,0 +1,47 @@
+{
+  "AltLookAngle": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "Autoraise": true,
+  "ColorDiffuse": {
+    "a": 0,
+    "b": 1,
+    "g": 0.53,
+    "r": 0.118
+  },
+  "Description": "",
+  "DragSelectable": true,
+  "FogColor": "Blue",
+  "GMNotes": "",
+  "GUID": "241503",
+  "Grid": false,
+  "GridProjection": false,
+  "Hands": false,
+  "HideWhenFaceDown": false,
+  "IgnoreFoW": false,
+  "LayoutGroupSortIndex": 0,
+  "Locked": true,
+  "LuaScript": "",
+  "LuaScriptState": "",
+  "MeasureMovement": false,
+  "Name": "HandTrigger",
+  "Nickname": "",
+  "Snap": true,
+  "Sticky": true,
+  "Tooltip": true,
+  "Transform": {
+    "posX": 15.475,
+    "posY": 4.81,
+    "posZ": 19.837,
+    "rotX": 0,
+    "rotY": 180,
+    "rotZ": 0,
+    "scaleX": 11.77,
+    "scaleY": 9.17,
+    "scaleZ": 4.87
+  },
+  "Value": 0,
+  "XmlUI": ""
+}
