@@ -1,7 +1,9 @@
 param(
-    [string]$ModDir = "mod-source",
-    [string]$ManifestPath = "assets-manifest.json",
-    [string]$OutputPath = "dist/workshop.json",
+    [Parameter(Mandatory = $true)]
+    [string]$Game,
+    [string]$ModDir,
+    [string]$ManifestPath,
+    [string]$OutputPath,
     [string]$TTSModManagerPath,
     [switch]$AllowUnbootstrapped
 )
@@ -52,13 +54,14 @@ function Replace-AssetTokens {
 }
 
 $repoRoot = Get-RepoRoot
-$modDirPath = Join-Path $repoRoot $ModDir
-$manifestFile = Join-Path $repoRoot $ManifestPath
-$outputFile = Join-Path $repoRoot $OutputPath
+$defaults = Get-GameDefaultPaths -Game $Game
+$modDirPath = if ($PSBoundParameters.ContainsKey("ModDir")) { Resolve-RepoPath -Path $ModDir -RepoRoot $repoRoot } else { $defaults.ModDir }
+$manifestFile = if ($PSBoundParameters.ContainsKey("ManifestPath")) { Resolve-RepoPath -Path $ManifestPath -RepoRoot $repoRoot } else { $defaults.ManifestPath }
+$outputFile = if ($PSBoundParameters.ContainsKey("OutputPath")) { Resolve-RepoPath -Path $OutputPath -RepoRoot $repoRoot } else { $defaults.OutputPath }
 $bootstrapMarker = Join-Path $modDirPath ".bootstrap-complete"
 
 if (-not $AllowUnbootstrapped -and -not (Test-Path -LiteralPath $bootstrapMarker)) {
-    throw "mod-source is not bootstrapped yet. Run scripts/bootstrap.ps1 first (or use -AllowUnbootstrapped)."
+    throw "Game '$Game' source is not bootstrapped yet. Run scripts/bootstrap.ps1 -Game $Game first (or use -AllowUnbootstrapped)."
 }
 
 if (-not (Test-Path -LiteralPath $modDirPath)) {

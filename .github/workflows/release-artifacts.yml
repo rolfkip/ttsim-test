@@ -15,8 +15,8 @@ jobs:
       - name: Ensure bootstrap marker exists
         shell: pwsh
         run: |
-          if (-not (Test-Path "mod-source/.bootstrap-complete")) {
-            throw "mod-source/.bootstrap-complete is missing. Bootstrap source before tagging a release."
+          if (-not (Test-Path "uno/mod-source/.bootstrap-complete")) {
+            throw "uno/mod-source/.bootstrap-complete is missing. Bootstrap source before tagging a release."
           }
 
       - name: Install TTSModManager
@@ -27,25 +27,25 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          ./scripts/build.ps1
+          ./scripts/build.ps1 -Game uno
 
       - name: Validate
         shell: pwsh
         run: |
-          ./scripts/validate.ps1
+          ./scripts/validate.ps1 -Game uno
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-workshop-files
+          name: uno-release-workshop-files
           path: |
-            dist/workshop.json
-            assets-manifest.json
+            uno/dist/workshop.json
+            uno/assets-manifest.json
 
       - name: Attach assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/workshop.json
-            assets-manifest.json
+            uno/dist/workshop.json
+            uno/assets-manifest.json
 
