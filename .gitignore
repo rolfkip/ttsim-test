@@ -1,5 +1,5 @@
 # Build output
-dist/workshop.json
+*/dist/workshop.json
 
 # Local tools
 tools/TTSModManager.exe

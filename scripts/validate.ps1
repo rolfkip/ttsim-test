@@ -1,6 +1,8 @@
 param(
-    [string]$JsonPath = "dist/workshop.json",
-    [string]$ManifestPath = "assets-manifest.json",
+    [Parameter(Mandatory = $true)]
+    [string]$Game,
+    [string]$JsonPath,
+    [string]$ManifestPath,
     [switch]$SkipRemoteUrlCheck
 )
 
@@ -55,8 +57,9 @@ function Test-RemoteUrl {
 }
 
 $repoRoot = Get-RepoRoot
-$jsonFile = Join-Path $repoRoot $JsonPath
-$manifestFile = Join-Path $repoRoot $ManifestPath
+$defaults = Get-GameDefaultPaths -Game $Game
+$jsonFile = if ($PSBoundParameters.ContainsKey("JsonPath")) { Resolve-RepoPath -Path $JsonPath -RepoRoot $repoRoot } else { $defaults.OutputPath }
+$manifestFile = if ($PSBoundParameters.ContainsKey("ManifestPath")) { Resolve-RepoPath -Path $ManifestPath -RepoRoot $repoRoot } else { $defaults.ManifestPath }
 $errors = New-Object System.Collections.Generic.List[string]
 $warnings = New-Object System.Collections.Generic.List[string]
 

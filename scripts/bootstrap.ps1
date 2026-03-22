@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory = $true)]
+    [string]$Game,
+    [Parameter(Mandatory = $true)]
     [string]$SourceJsonPath,
-    [string]$ModDir = "mod-source",
+    [string]$ModDir,
     [string]$TTSModManagerPath
 )
 
@@ -12,7 +14,8 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Get-RepoRoot
 $sourceJson = Resolve-Path -LiteralPath $SourceJsonPath -ErrorAction Stop
-$modDirPath = Join-Path $repoRoot $ModDir
+$defaults = Get-GameDefaultPaths -Game $Game
+$modDirPath = if ($PSBoundParameters.ContainsKey("ModDir")) { Resolve-RepoPath -Path $ModDir -RepoRoot $repoRoot } else { $defaults.ModDir }
 Ensure-Directory -Path $modDirPath
 
 $ttsmm = Resolve-TTSModManager -TTSModManagerPath $TTSModManagerPath
